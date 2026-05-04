@@ -1,0 +1,113 @@
+name: subs-check
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # 每6小时运行一次（UTC时间）
+  workflow_dispatch:          # 允许手动触发
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30       # 最多跑30分钟，超时自动终止
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 下载 subs-check
+        run: |
+          # 获取最新版本号
+          VERSION=$(curl -s https://api.github.com/repos/beck-8/subs-check/releases/latest \
+            | grep '"tag_name"' | cut -d'"' -f4)
+          echo "最新版本: $VERSION"
+          
+          # 下载 Linux amd64 版本（Actions runner 是 ubuntu）
+          curl -L -o subs-check.tar.gz \
+            "https://github.com/beck-8/subs-check/releases/download/${VERSION}/subs-check_linux_amd64.tar.gz"
+          
+          tar -xzf subs-check.tar.gz
+          chmod +x subs-check
+          ./subs-check --version || true
+
+      - name: 准备配置文件
+        env:
+          GITHUB_TOKEN_GIST: ${{ secrets.GITHUB_TOKEN_GIST }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          SUB_URLS: ${{ secrets.SUB_URLS }}
+        run: |
+          # 把订阅链接注入配置文件
+          # 先生成 sub-urls 的 yaml 格式
+          SUB_URLS_YAML=""
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              SUB_URLS_YAML="${SUB_URLS_YAML}  - \"${line}\"\n"
+            fi
+          done <<< "$SUB_URLS"
+          
+          # 替换配置文件中的占位符和空白字段
+          sed -i "s|github-gist-id: \"\"|github-gist-id: \"${GIST_ID}\"|g" config.yaml
+          sed -i "s|github-token: \"\"|github-token: \"${GITHUB_TOKEN_GIST}\"|g" config.yaml
+          
+          # 替换 sub-urls 部分
+          python3 -c "
+          import re, os
+          with open('config.yaml', 'r') as f:
+              content = f.read()
+          
+          sub_urls = os.environ['SUB_URLS'].strip().split('\n')
+          urls_yaml = 'sub-urls:\n' + '\n'.join(f'  - \"{u.strip()}\"' for u in sub_urls if u.strip())
+          
+          content = re.sub(r'sub-urls:.*?(\n\S|\Z)', urls_yaml + r'\1', content, flags=re.DOTALL)
+          
+          with open('config.yaml', 'w') as f:
+              f.write(content)
+          print('配置文件准备完成')
+          "
+          
+          # 验证配置（不输出 token）
+          echo "=== 配置检查 ==="
+          grep -v "github-token\|github-gist-id" config.yaml | head -30
+
+      - name: 运行 subs-check
+        run: |
+          # 单次运行模式：运行一次检测后退出
+          # 利用 timeout 命令限制最长运行时间
+          timeout 25m ./subs-check -f config.yaml &
+          PID=$!
+          
+          # 等待检测完成，每30秒检查一次输出文件是否生成
+          for i in $(seq 1 50); do
+            sleep 30
+            if ls output/base64.txt 2>/dev/null; then
+              echo "检测完成，输出文件已生成"
+              kill $PID 2>/dev/null || true
+              break
+            fi
+            echo "等待检测完成... (${i}/50)"
+          done
+          
+          wait $PID 2>/dev/null || true
+
+      - name: 检查输出结果
+        run: |
+          echo "=== 输出文件 ==="
+          ls -la output/ 2>/dev/null || echo "output 目录不存在"
+          
+          if [ -f "output/base64.txt" ]; then
+            # 统计节点数量（base64解码后按行计算）
+            COUNT=$(base64 -d output/base64.txt 2>/dev/null | grep -c "://" || echo "0")
+            echo "有效节点数量: ${COUNT}"
+          fi
+          
+          if [ -f "output/all.yaml" ]; then
+            NODE_COUNT=$(grep -c "^  - name:" output/all.yaml || echo "0")
+            echo "YAML节点数量: ${NODE_COUNT}"
+          fi
+
+      - name: 上传结果到 Artifact（备用）
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: subs-check-output
+          path: output/
+          retention-days: 1    # 只保留1天，节省空间
