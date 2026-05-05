@@ -2,8 +2,8 @@ name: subs-check
 
 on:
   schedule:
-    - cron: '0 */2 * * *'   # 每2小时运行一次（UTC时间）
-  workflow_dispatch:        # 允许手动触发
+    - cron: '0 */4 * * *'    # 每4小时运行一次（UTC时间）
+  workflow_dispatch:         # 允许手动触发
 
 jobs:
   check:
@@ -17,13 +17,13 @@ jobs:
       - name: 设置 Go 环境
         uses: actions/setup-go@v5
         with:
-          # go-version: '1.24'   # 改为接近1.25的稳定版本
-          go-version: stable
+          # go-version: '1.24'
+          go-version: 'stable'
           cache: true
 
       - name: 编译 subs-check
         run: |
-          # 创建嵌入文件所需的占位符（使 go:embed 编译通过）
+          # 创建所有被 go:embed 要求但已删除的文件/目录
           mkdir -p app/templates
           touch app/templates/.gitkeep
           touch assets/node_linux_amd64.zst
@@ -53,19 +53,33 @@ jobs:
               f.write(content)
           print('配置文件准备完成')
           "
+
           echo "=== 配置检查 ==="
           grep -v "github-token\|github-gist-id" config.yaml | head -30
 
       - name: 运行 subs-check
         run: |
-          # 如果仓库中有 run.sh 则使用它，否则直接运行二进制
-          if [ -f run.sh ]; then
-            chmod +x run.sh
-            timeout 30m ./run.sh
-          else
-            # 直接运行，程序会因 check-interval: 0 自动退出
-            timeout 30m ./subs-check
-          fi
+          ./subs-check -f config.yaml &
+          PID=$!
+          echo "subs-check 已启动，PID: $PID"
+
+          MAX_WAIT=1800
+          ELAPSED=0
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            sleep 20
+            ELAPSED=$((ELAPSED + 20))
+            if [ -f "output/all.yaml" ] && [ -s "output/all.yaml" ]; then
+              echo "检测完成，输出文件已生成，等待Gist写入..."
+              sleep 15
+              kill $PID 2>/dev/null || true
+              echo "已正常退出，耗时约 ${ELAPSED} 秒"
+              exit 0
+            fi
+            echo "等待检测完成... (${ELAPSED}/${MAX_WAIT}秒)"
+          done
+
+          echo "超时退出，检查订阅源是否有效"
+          kill $PID 2>/dev/null || true
 
       - name: 检查输出结果
         run: |
@@ -91,3 +105,14 @@ jobs:
           name: subs-check-output
           path: output/
           retention-days: 1
+
+      - name: 保持仓库活跃（防止 Actions 被禁用）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "Last run: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > .last_run
+          git add .last_run
+          git diff --staged --quiet || git commit -m "chore: update last run time [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
