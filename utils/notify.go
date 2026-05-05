@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/beck-8/subs-check/config"
+	"github.com/yu-day/my-subs-check/config"
 )
 
 // NotifyRequest 定义发送通知的请求结构
