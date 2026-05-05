@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/beck-8/2clash/convert"
-	"github.com/beck-8/subs-check/config"
-	"github.com/beck-8/subs-check/utils"
+	"github.com/yu-day/my-subs-check/config"
+	"github.com/yu-day/my-subs-check/utils"
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
