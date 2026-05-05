@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/beck-8/subs-check/check"
-	"github.com/beck-8/subs-check/config"
+	"github.com/yu-day/my-subs-check/check"
+	"github.com/yu-day/my-subs-check/config"
 )
 
 // ---- marshalProxies ----
