@@ -1,5 +1,5 @@
 print-progress: false
-concurrent: 10
+concurrent: 30
 check-interval: 999999
 
 media-check: false
@@ -13,9 +13,9 @@ node-type:
   - ss
   - trojan
 
-timeout: 8000
-success-limit: 100
-max-proxies-per-check: 500
+timeout: 5000
+success-limit: 200
+max-proxies-per-check: 0
 
 save-method: gist
 github-gist-id: ""
