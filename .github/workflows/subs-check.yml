@@ -2,7 +2,7 @@ name: subs-check
 
 on:
   schedule:
-    - cron: '0 */3 * * *'   # 每3小时运行一次（UTC时间）
+    - cron: '0 */2 * * *'   # 每2小时运行一次（UTC时间）
   workflow_dispatch:          # 允许手动触发
 
 jobs:
@@ -17,19 +17,21 @@ jobs:
       - name: 设置 Go 环境
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'   # 改为接近1.25的稳定版本
+          # go-version: '1.24'   # 改为接近1.25的稳定版本
+          go-version: 'stable'
           cache: true
 
       - name: 编译 subs-check
-        run: |
-          # 创建空占位文件满足 go:embed 要求
-          # disable-sub-store=true 时运行时不会读取这些文件
-          touch assets/node_linux_amd64.zst
-          touch assets/sub-store.bundle.js.zst
-
-          go build -o subs-check .
-          chmod +x subs-check
-          echo "编译成功"
+          run: |
+            # 创建所有被 go:embed 要求但已删除的文件/目录
+            mkdir -p app/templates
+            touch app/templates/.gitkeep
+            touch assets/node_linux_amd64.zst
+            touch assets/sub-store.bundle.js.zst
+            
+            go build -ldflags="-s -w" -trimpath -o subs-check .
+            chmod +x subs-check
+            echo "编译成功，文件大小: $(du -sh subs-check | cut -f1)"
 
       - name: 准备配置文件
         env:
