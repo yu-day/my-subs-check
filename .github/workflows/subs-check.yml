@@ -31,7 +31,7 @@ jobs:
 
       - name: 准备配置文件
         env:
-          GITHUB_TOKEN_GIST: ${{ secrets.GITHUB_TOKEN_GIST }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
           SUB_URLS: ${{ secrets.SUB_URLS }}
         run: |
@@ -46,7 +46,7 @@ jobs:
           
           # 替换配置文件中的占位符和空白字段
           sed -i "s|github-gist-id: \"\"|github-gist-id: \"${GIST_ID}\"|g" config.yaml
-          sed -i "s|github-token: \"\"|github-token: \"${GITHUB_TOKEN_GIST}\"|g" config.yaml
+          sed -i "s|github-token: \"\"|github-token: \"${GIST_TOKEN}\"|g" config.yaml
           
           # 替换 sub-urls 部分
           python3 -c "
