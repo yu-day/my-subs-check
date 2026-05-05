@@ -1,6 +1,6 @@
 print-progress: false
 concurrent: 10
-check-interval: 999999      # Actions 模式下不需要定时，填大数禁用
+check-interval: 999999
 
 media-check: false
 speed-test-url: ""
@@ -18,10 +18,10 @@ success-limit: 100
 max-proxies-per-check: 500
 
 save-method: gist
-github-gist-id: ""          # 由 Actions 注入，这里留空
-github-token: ""            # 由 Actions 注入，这里留空
+github-gist-id: ""
+github-token: ""
 
-listen-port: ""             # Actions 模式不需要 HTTP 服务
+listen-port: ""
 
 sub-urls:
-  - "PLACEHOLDER"           # 由 Actions 注入，这里填占位符
+  - "PLACEHOLDER"
