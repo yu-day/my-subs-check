@@ -86,17 +86,8 @@ func (app *App) Initialize() error {
 			return fmt.Errorf("初始化HTTP服务器失败: %w", err)
 		}
 	}
-
-/* 	if config.GlobalConfig.SubStorePort != "" {
-		if runtime.GOOS == "linux" && runtime.GOARCH == "386" {
-			slog.Warn("node不支持Linux 32位系统，不启动sub-store服务")
-		}
-		go assets.RunSubStoreService()
-		// 求等吗得，日志会按预期顺序输出
-		time.Sleep(500 * time.Millisecond)
-	} */
 	
-	// 替换为：
+	// 低配优化
 	if config.GlobalConfig.SubStorePort != "" {
 		if config.GlobalConfig.DisableSubStore {
 			slog.Info("sub-store 服务已通过 disable-sub-store 禁用（低配设备优化）")
