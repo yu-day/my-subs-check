@@ -20,18 +20,6 @@ jobs:
           go-version: '1.24'   # 改为接近1.25的稳定版本
           cache: true
 
-      - name: 补全缺失的 assets 文件
-        run: |
-          # 从原仓库下载编译必需的两个 Go 源文件（你的 zip 包里没有它们）
-          curl -fsSL -o assets/sub_run.go \
-            https://raw.githubusercontent.com/beck-8/subs-check/main/assets/sub_run.go
-          curl -fsSL -o assets/sub_store.go \
-            https://raw.githubusercontent.com/beck-8/subs-check/main/assets/sub_store.go
-
-          echo "下载完成，验证文件："
-          head -3 assets/sub_run.go
-          head -3 assets/sub_store.go
-
       - name: 编译 subs-check
         run: |
           # 创建空占位文件满足 go:embed 要求
