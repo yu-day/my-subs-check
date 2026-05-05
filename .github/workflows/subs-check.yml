@@ -22,6 +22,12 @@ jobs:
 
       - name: 编译 subs-check
         run: |
+          # 因为 disable-sub-store=true，node 二进制不会被实际使用
+          # 但 go:embed 编译时仍然要求文件存在，创建占位文件满足编译要求
+          # sub-store.bundle.js 同理
+          touch assets/node_linux_amd64.zst
+          touch assets/sub-store.bundle.js.zst
+          
           go build -o subs-check .
           chmod +x subs-check
           echo "编译成功"
