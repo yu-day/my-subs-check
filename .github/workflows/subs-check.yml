@@ -17,17 +17,28 @@ jobs:
       - name: 设置 Go 环境
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-          cache: true          # 缓存依赖，加快后续构建
+          go-version: '1.24'   # 改为接近1.25的稳定版本
+          cache: true
+
+      - name: 补全缺失的 assets 文件
+        run: |
+          # 从原仓库下载编译必需的两个 Go 源文件（你的 zip 包里没有它们）
+          curl -fsSL -o assets/sub_run.go \
+            https://raw.githubusercontent.com/beck-8/subs-check/main/assets/sub_run.go
+          curl -fsSL -o assets/sub_store.go \
+            https://raw.githubusercontent.com/beck-8/subs-check/main/assets/sub_store.go
+
+          echo "下载完成，验证文件："
+          head -3 assets/sub_run.go
+          head -3 assets/sub_store.go
 
       - name: 编译 subs-check
         run: |
-          # 因为 disable-sub-store=true，node 二进制不会被实际使用
-          # 但 go:embed 编译时仍然要求文件存在，创建占位文件满足编译要求
-          # sub-store.bundle.js 同理
+          # 创建空占位文件满足 go:embed 要求
+          # disable-sub-store=true 时运行时不会读取这些文件
           touch assets/node_linux_amd64.zst
           touch assets/sub-store.bundle.js.zst
-          
+
           go build -o subs-check .
           chmod +x subs-check
           echo "编译成功"
@@ -38,27 +49,21 @@ jobs:
           GIST_ID: ${{ secrets.GIST_ID }}
           SUB_URLS: ${{ secrets.SUB_URLS }}
         run: |
-          # 注入 gist 相关配置
           sed -i "s|github-gist-id: \"\"|github-gist-id: \"${GIST_ID}\"|g" config.yaml
           sed -i "s|github-token: \"\"|github-token: \"${GIST_TOKEN}\"|g" config.yaml
 
-          # 注入订阅链接
           python3 -c "
           import re, os
           with open('config.yaml', 'r') as f:
               content = f.read()
-
           sub_urls = os.environ['SUB_URLS'].strip().split('\n')
           urls_yaml = 'sub-urls:\n' + '\n'.join(f'  - \"{u.strip()}\"' for u in sub_urls if u.strip())
-
           content = re.sub(r'sub-urls:.*?(\n\S|\Z)', urls_yaml + r'\1', content, flags=re.DOTALL)
-
           with open('config.yaml', 'w') as f:
               f.write(content)
           print('配置文件准备完成')
           "
 
-          # 打印配置验证（隐藏敏感信息）
           echo "=== 配置检查 ==="
           grep -v "github-token\|github-gist-id" config.yaml | head -30
 
