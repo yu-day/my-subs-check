@@ -2,13 +2,17 @@
 ./subs-check -f config.yaml &
 PID=$!
 
-# 每隔20秒检查输出是否已写入
+echo "subs-check 已启动，PID: $PID"
+
+# 每20秒检查一次输出文件
 while true; do
   sleep 20
   if [ -f "output/all.yaml" ] && [ -s "output/all.yaml" ]; then
-    echo "输出文件已生成，等待Gist写入完成..."
-    sleep 10   # 再等10秒确保Gist写入完毕
-    kill $PID
+    echo "检测完成，输出文件已生成，等待Gist写入..."
+    sleep 15
+    kill $PID 2>/dev/null || true
+    echo "已退出"
     exit 0
   fi
+  echo "等待检测完成..."
 done
