@@ -8,6 +8,8 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 40
 
     steps:
@@ -17,13 +19,11 @@ jobs:
       - name: 设置 Go 环境
         uses: actions/setup-go@v5
         with:
-          # go-version: '1.24'
           go-version: 'stable'
           cache: true
 
       - name: 编译 subs-check
         run: |
-          # 创建所有被 go:embed 要求但已删除的文件/目录
           mkdir -p app/templates
           touch app/templates/.gitkeep
           touch assets/node_linux_amd64.zst
@@ -81,6 +81,105 @@ jobs:
           echo "超时退出，检查订阅源是否有效"
           kill $PID 2>/dev/null || true
 
+      - name: 生成 base64.txt 并上传 Gist
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+        run: |
+          if [ ! -f "output/all.yaml" ]; then
+            echo "all.yaml 不存在，跳过"
+            exit 0
+          fi
+
+          python3 << 'EOF'
+          import yaml, base64, json, sys
+          from urllib.parse import quote
+
+          try:
+              with open('output/all.yaml', 'r', encoding='utf-8') as f:
+                  data = yaml.safe_load(f)
+          except Exception as e:
+              print(f"读取 all.yaml 失败: {e}")
+              sys.exit(1)
+
+          proxies = data.get('proxies', [])
+          lines = []
+
+          for p in proxies:
+              try:
+                  ptype  = p.get('type', '')
+                  name   = p.get('name', '')
+                  server = p.get('server', '')
+                  port   = str(p.get('port', ''))
+
+                  if ptype == 'vmess':
+                      net = p.get('network', 'tcp')
+                      ws_opts = p.get('ws-opts', {}) or {}
+                      vmess_obj = {
+                          "v": "2", "ps": name, "add": server, "port": port,
+                          "id": p.get('uuid', ''),
+                          "aid": str(p.get('alterId', 0)),
+                          "net": net, "type": "none",
+                          "host": ws_opts.get('headers', {}).get('Host', '') if net == 'ws' else '',
+                          "path": ws_opts.get('path', '') if net == 'ws' else '',
+                          "tls": "tls" if p.get('tls') else ""
+                      }
+                      b64 = base64.b64encode(json.dumps(vmess_obj, ensure_ascii=False).encode()).decode()
+                      lines.append(f"vmess://{b64}")
+
+                  elif ptype == 'ss':
+                      cipher   = p.get('cipher', '')
+                      password = p.get('password', '')
+                      userinfo = base64.b64encode(f"{cipher}:{password}".encode()).decode()
+                      lines.append(f"ss://{userinfo}@{server}:{port}#{quote(name)}")
+
+                  elif ptype == 'trojan':
+                      password = p.get('password', '')
+                      sni = p.get('sni', '') or p.get('servername', '')
+                      uri = f"trojan://{quote(password)}@{server}:{port}"
+                      if sni:
+                          uri += f"?sni={sni}"
+                      uri += f"#{quote(name)}"
+                      lines.append(uri)
+
+              except Exception as e:
+                  print(f"跳过节点 {p.get('name','?')}: {e}")
+                  continue
+
+          if not lines:
+              print("警告：没有生成任何节点 URI")
+              sys.exit(0)
+
+          content = '\n'.join(lines)
+          b64_out = base64.b64encode(content.encode('utf-8')).decode()
+
+          with open('output/base64.txt', 'w') as f:
+              f.write(b64_out)
+
+          # 直接在 Python 里构造 JSON payload 并写文件，避免 shell 转义问题
+          payload = {'files': {'base64.txt': {'content': b64_out}}}
+          with open('/tmp/gist_payload.json', 'w') as f:
+              json.dump(payload, f)
+
+          print(f"生成完成，共 {len(lines)} 个节点")
+          EOF
+
+          # 上传到 Gist
+          HTTP_CODE=$(curl -s -o /tmp/gist_response.json -w "%{http_code}" -X PATCH \
+            -H "Authorization: token ${GIST_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/gist_payload.json \
+            "https://api.github.com/gists/${GIST_ID}")
+
+          echo "Gist 上传状态码: ${HTTP_CODE}"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "base64.txt 上传 Gist 成功"
+          else
+            echo "上传失败，响应内容："
+            cat /tmp/gist_response.json
+            exit 1
+          fi
+
       - name: 检查输出结果
         run: |
           echo "=== 输出文件 ==="
@@ -88,13 +187,13 @@ jobs:
 
           if [ -f "output/base64.txt" ]; then
             COUNT=$(base64 -d output/base64.txt 2>/dev/null | grep -c "://" || echo "0")
-            echo "有效节点数量: ${COUNT}"
+            echo "base64节点数量: ${COUNT}"
           else
             echo "警告: base64.txt 未生成"
           fi
 
           if [ -f "output/all.yaml" ]; then
-            NODE_COUNT=$(grep -c "^  - name:" output/all.yaml || echo "0")
+            NODE_COUNT=$(grep -c "^- name:\|^  - name:" output/all.yaml || echo "0")
             echo "YAML节点数量: ${NODE_COUNT}"
           fi
 
