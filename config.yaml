@@ -7,7 +7,7 @@ speed-test-url: ""
 enable-web-ui: false
 disable-sub-store: true
 memory-optimize: true
-rename-node: false
+rename-node: true
 
 node-type:
   - vmess
