@@ -11,6 +11,7 @@ rename-node: true
 
 node-type:
   - vmess
+  - vless  
   - ss
   - trojan
 
