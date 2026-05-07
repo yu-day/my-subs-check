@@ -2,8 +2,8 @@ name: subs-check
 
 on:
   schedule:
-    - cron: '0 */4 * * *'    # 每4小时运行一次（UTC时间）
-  workflow_dispatch:         # 允许手动触发
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
 
 jobs:
   check:
@@ -99,11 +99,14 @@ jobs:
               with open('output/all.yaml', 'r', encoding='utf-8') as f:
                   data = yaml.safe_load(f)
           except Exception as e:
-              print(f"读取 all.yaml 失败: {e}")
+              print(f"读取 all.yaml 失败: {e}", flush=True)
               sys.exit(1)
 
           proxies = data.get('proxies', [])
+          print(f"输入节点总数: {len(proxies)}", flush=True)
+
           lines = []
+          skip = 0
 
           for p in proxies:
               try:
@@ -113,59 +116,108 @@ jobs:
                   port   = str(p.get('port', ''))
 
                   if ptype == 'vmess':
-                      net = p.get('network', 'tcp')
-                      ws_opts = p.get('ws-opts', {}) or {}
+                      net     = p.get('network', 'tcp')
+                      ws_opts = p.get('ws-opts') or {}
+                      grpc_opts = p.get('grpc-opts') or {}
                       vmess_obj = {
                           "v": "2", "ps": name, "add": server, "port": port,
-                          "id": p.get('uuid', ''),
+                          "id":  p.get('uuid', ''),
                           "aid": str(p.get('alterId', 0)),
                           "net": net, "type": "none",
-                          "host": ws_opts.get('headers', {}).get('Host', '') if net == 'ws' else '',
-                          "path": ws_opts.get('path', '') if net == 'ws' else '',
+                          "host": (ws_opts.get('headers') or {}).get('Host', '') if net == 'ws' else '',
+                          "path": ws_opts.get('path', '') if net == 'ws'
+                                  else grpc_opts.get('grpc-service-name', '') if net == 'grpc'
+                                  else '',
                           "tls": "tls" if p.get('tls') else ""
                       }
-                      b64 = base64.b64encode(json.dumps(vmess_obj, ensure_ascii=False).encode()).decode()
+                      b64 = base64.b64encode(
+                          json.dumps(vmess_obj, ensure_ascii=False).encode()).decode()
                       lines.append(f"vmess://{b64}")
+
+                  elif ptype == 'vless':
+                      uuid = p.get('uuid', '')
+                      net  = p.get('network', 'tcp')
+                      security = p.get('tls-opts', {}).get('serverName', '') or p.get('servername', '')
+                      tls  = 'tls' if p.get('tls') else ''
+                      flow = p.get('flow', '')
+
+                      ws_opts   = p.get('ws-opts') or {}
+                      grpc_opts = p.get('grpc-opts') or {}
+
+                      params = []
+                      params.append(f"type={net}")
+                      params.append(f"encryption=none")
+                      if tls:
+                          params.append(f"security={tls}")
+                      if security:
+                          params.append(f"sni={security}")
+                      if flow:
+                          params.append(f"flow={flow}")
+                      if net == 'ws':
+                          path = ws_opts.get('path', '')
+                          host = (ws_opts.get('headers') or {}).get('Host', '')
+                          if path: params.append(f"path={quote(path)}")
+                          if host: params.append(f"host={host}")
+                      elif net == 'grpc':
+                          svc = grpc_opts.get('grpc-service-name', '')
+                          if svc: params.append(f"serviceName={svc}")
+                          params.append("mode=gun")
+
+                      query = '&'.join(params)
+                      fragment = quote(name)
+                      lines.append(f"vless://{uuid}@{server}:{port}?{query}#{fragment}")
 
                   elif ptype == 'ss':
                       cipher   = p.get('cipher', '')
                       password = p.get('password', '')
-                      userinfo = base64.b64encode(f"{cipher}:{password}".encode()).decode()
+                      userinfo = base64.b64encode(
+                          f"{cipher}:{password}".encode()).decode()
                       lines.append(f"ss://{userinfo}@{server}:{port}#{quote(name)}")
 
                   elif ptype == 'trojan':
                       password = p.get('password', '')
                       sni = p.get('sni', '') or p.get('servername', '')
-                      uri = f"trojan://{quote(password)}@{server}:{port}"
+                      uri = f"trojan://{quote(str(password))}@{server}:{port}"
                       if sni:
                           uri += f"?sni={sni}"
                       uri += f"#{quote(name)}"
                       lines.append(uri)
 
+                  else:
+                      skip += 1
+
               except Exception as e:
-                  print(f"跳过节点 {p.get('name','?')}: {e}")
+                  print(f"跳过节点 {p.get('name','?')}: {e}", flush=True)
+                  skip += 1
                   continue
 
+          print(f"转换成功: {len(lines)} 个，跳过: {skip} 个", flush=True)
+
           if not lines:
-              print("警告：没有生成任何节点 URI")
+              print("警告：没有生成任何节点 URI", flush=True)
               sys.exit(0)
 
           content = '\n'.join(lines)
           b64_out = base64.b64encode(content.encode('utf-8')).decode()
 
-          with open('output/base64.txt', 'w') as f:
-              f.write(b64_out)
+          # 同时写 node.txt（供服务器拉取）和 base64.txt（兼容）
+          with open('output/node.txt',   'w') as f: f.write(b64_out)
+          with open('output/base64.txt', 'w') as f: f.write(b64_out)
 
-          # 直接在 Python 里构造 JSON payload 并写文件，避免 shell 转义问题
-          payload = {'files': {'base64.txt': {'content': b64_out}}}
+          # 构造 Gist payload，同时更新两个文件
+          payload = {
+              'files': {
+                  'node.txt':   {'content': b64_out},
+                  'base64.txt': {'content': b64_out},
+              }
+          }
           with open('/tmp/gist_payload.json', 'w') as f:
               json.dump(payload, f)
 
-          print(f"生成完成，共 {len(lines)} 个节点")
+          print("Gist payload 已生成", flush=True)
           EOF
 
-          # 上传到 Gist
-          HTTP_CODE=$(curl -s -o /tmp/gist_response.json -w "%{http_code}" -X PATCH \
+          HTTP_CODE=$(curl -s -o /tmp/gist_resp.json -w "%{http_code}" -X PATCH \
             -H "Authorization: token ${GIST_TOKEN}" \
             -H "Content-Type: application/json" \
             -d @/tmp/gist_payload.json \
@@ -173,10 +225,10 @@ jobs:
 
           echo "Gist 上传状态码: ${HTTP_CODE}"
           if [ "$HTTP_CODE" = "200" ]; then
-            echo "base64.txt 上传 Gist 成功"
+            echo "node.txt 和 base64.txt 上传成功"
           else
-            echo "上传失败，响应内容："
-            cat /tmp/gist_response.json
+            echo "上传失败，响应："
+            cat /tmp/gist_resp.json
             exit 1
           fi
 
@@ -208,7 +260,7 @@ jobs:
       - name: 保持仓库活跃（防止 Actions 被禁用）
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config.user.email "github-actions[bot]@users.noreply.github.com"
           echo "Last run: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > .last_run
           git add .last_run
           git diff --staged --quiet || git commit -m "chore: update last run time [skip ci]"
